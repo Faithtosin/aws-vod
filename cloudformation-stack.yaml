@@ -1,0 +1,155 @@
+ AWSTemplateFormatVersion: 2010-09-09
+Description: S3 Bucket with Inventory and Analytics Configurations
+
+Parameters:
+  LambdaLayerBucket:
+    Type: String
+    Default: lamdalayer-bucket-lambdalayerbucket-r4tu6p2dy2a
+
+Resources:
+
+#Lambda Function Role
+  LambdaResourcesRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-custom-resource"
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - mediaconvert:CreatePreset
+                  - mediaconvert:CreateJobTemplate
+                  - mediaconvert:DeletePreset
+                  - mediaconvert:DeleteJobTemplate
+                  - mediaconvert:DescribeEndpoints
+                  - mediaconvert:ListJobTemplates
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:mediaconvert:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - mediapackage-vod:DeleteAsset
+                  - mediapackage-vod:DeletePackagingConfiguration
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:mediapackage-vod:${AWS::Region}:${AWS::AccountId}:assets/*"
+                  - !Sub "arn:${AWS::Partition}:mediapackage-vod:${AWS::Region}:${AWS::AccountId}:packaging-configurations/packaging-config-*"
+              - Effect: Allow
+                Action:
+                  - mediapackage-vod:DescribePackagingGroup
+                  - mediapackage-vod:DeletePackagingGroup
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:mediapackage-vod:${AWS::Region}:${AWS::AccountId}:packaging-groups/${AWS::StackName}-packaging-group"
+              - Effect: Allow
+                Action:
+                  - mediapackage-vod:CreatePackagingConfiguration
+                  - mediapackage-vod:CreatePackagingGroup
+                  - mediapackage-vod:ListAssets
+                  - mediapackage-vod:ListPackagingConfigurations
+                  - mediapackage-vod:ListPackagingGroups
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:UpdateDistribution
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/*"
+
+#S3 lambda invoke permission
+  S3LambdaInvokeVideo:
+    Type: AWS::Lambda::Permission
+    DependsOn: [MediaInfoLambda]
+    Properties:
+      FunctionName: !GetAtt MediaInfoLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+
+#Lambda Layer
+  MediaInfoLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+        - python3.7
+      Content:
+        S3Bucket: !Ref LambdaLayerBucket
+        S3Key: app.zip
+      Description: Lambda layer for MediaInfoLambda 'pymediainfo'
+      LayerName: MediaInfoLambdaLayer
+
+#Lambda Function to get object details
+  MediaInfoLambda:
+    Description: Lambda function gets details of media object
+    DependsOn: [LambdaResourcesRole, MediaInfoLambdaLayer]
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-media-info"
+      Layers: [!Ref MediaInfoLambdaLayer ]
+      Handler: app.lambda_handler
+      Role: !GetAtt LambdaResourcesRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaLayerBucket
+        S3Key: pythonapp.zip
+      Runtime: python3.7
+      Environment:
+        Variables:
+          DEST_BUCKET: vodstack-1-destination-1gxvgnrwvxg6i
+
+#S3 lambda invoke permission
+  S3LambdaInvokeImage:
+    Type: AWS::Lambda::Permission
+    DependsOn: [ImageProcessorLambda]
+    Properties:
+      FunctionName: !GetAtt ImageProcessorLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: arn:aws:s3:::vodstack-1-source-grlx73e1t73c
+
+#Lambda Layer
+  ImageProcessorLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+        - python3.7
+      Content:
+        S3Bucket: !Ref LambdaLayerBucket
+        S3Key: pil.zip
+      Description: Lambda layer for Image Processor 'pillow'
+      LayerName: ImageProcessorLambdaLayer
+
+#Lambda Function to get object details
+  ImageProcessorLambda:
+    Description: Lambda function Processes Image objects
+    DependsOn: [LambdaResourcesRole, ImageProcessorLambdaLayer]
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-image-processor"
+      Layers: [!Ref ImageProcessorLambdaLayer ]
+      Handler: pillow.lambda_handler
+      Role: !GetAtt LambdaResourcesRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaLayerBucket
+        S3Key: pillow.zip
+      Runtime: python3.7
