@@ -5,12 +5,13 @@ import boto3
 import botocore
 import subprocess
 import os
+from urllib.parse import unquote_plus
 from botocore.config import Config
 
 
 SIGNED_URL_EXPIRATION = 300     # The number of seconds that the Signed URL is valid
 region = os.environ['AWS_REGION']
-destBucket= os.environ['DEST_BUCKET']
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -25,8 +26,9 @@ def lambda_handler(event, context):
     for s3_record in event['Records']:
         logger.info("Working on new s3_record...")
         # Extract the Key and Bucket names for the asset uploaded to S3
-        key = s3_record['s3']['object']['key']
+        key = unquote_plus(s3_record['s3']['object']['key'])
         bucket = s3_record['s3']['bucket']['name']
+        destBucket= os.environ['DEST_BUCKET']
         logger.info("Bucket: {} \t Key: {}".format(bucket, key))
 
         # Generate a signed URL for the uploaded asset
@@ -58,8 +60,16 @@ def lambda_handler(event, context):
                         "MediaConvert_Template_4k_MOV_H264",
                         "MediaConvert_Template_HD_MP4_H264",
                         "MediaConvert_Template_HD_MOV_PRORES",
-                        "MediaConvert_Template_HD_MOV_H264"
+                        "MediaConvert_Template_HD_MOV_H264",
+                        
+                        "MediaConvert_Template_4k_MP4_H265",
+                        "MediaConvert_Template_4k_MOV_H265",
+                        "MediaConvert_Template_HD_MP4_H265",
+                        "MediaConvert_Template_HD_MOV_H265",
+                        "MediaConvert_Template_4k_MOV_PRORES_422HQ",
+                        "MediaConvert_Template_HD_MOV_PRORES_422HQ"
                         ]
+                        
         srcVideo = key
         
         
@@ -69,18 +79,29 @@ def lambda_handler(event, context):
                 Video_Codec_List = i["Video_Codec_List"]
             if i['@type'] == "Video":
                 Height = i["Height"]
+                Format_Profile = i["Format_Profile"]
                 
         #Determine template for different resolution
         if  Height in control_4k:
-            if control_mp4 in key.lower() : jobTemplate = jobTemplate[0]
+            if control_mp4 in key.lower() : 
+                if "hevc" in Video_Codec_List.lower() : jobTemplate = jobTemplate[6]
+                else: jobTemplate = jobTemplate[0]
             elif control_mov in key.lower() :
-                if "prores" in Video_Codec_List.lower() : jobTemplate = jobTemplate[1]
+                if "prores" in Video_Codec_List.lower() : 
+                    if "422" in Format_Profile: jobTemplate = jobTemplate[10]
+                    else:    jobTemplate = jobTemplate[1]
+                elif "hevc" in Video_Codec_List.lower() : jobTemplate = jobTemplate[2]
                 else: jobTemplate = jobTemplate[2]
             else: jobTemplate = jobTemplate[0]
         elif Height in control_HD:
-            if control_mp4 in key.lower() : jobTemplate = jobTemplate[3]
+            if control_mp4 in key.lower() : 
+                if "hevc" in Video_Codec_List.lower() : jobTemplate = jobTemplate[8]
+                else: jobTemplate = jobTemplate[3]
             elif control_mov in key.lower() :
-                if "prores" in Video_Codec_List.lower() : jobTemplate = jobTemplate[4]
+                if "prores" in Video_Codec_List.lower() :
+                    if "422" in Format_Profile: jobTemplate = jobTemplate[11]
+                    else: jobTemplate = jobTemplate[4]
+                elif "hevc" in Video_Codec_List.lower() : jobTemplate = jobTemplate[5]
                 else: jobTemplate = jobTemplate[5]
             else: jobTemplate = jobTemplate[3]
         else :
@@ -92,8 +113,11 @@ def lambda_handler(event, context):
         if key.find(control_key) > 0:
             folder = key.split("/", 1)
             key = folder[0] + "/" + "metadata.json"
-            destBucket= str(destBucket+ "/" + folder[0] + "/")
+            subfolder= folder[1].split(".m",1)
+            destBucket= str(destBucket+ "/" + folder[0] + "/" +subfolder[0] + "/")
         else:
+            subfolder= key.split(".m",1)
+            destBucket= str(destBucket+ "/" +subfolder[0] + "/")
             key = "metadata.json"
         
          
