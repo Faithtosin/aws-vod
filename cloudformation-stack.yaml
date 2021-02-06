@@ -1,12 +1,22 @@
- AWSTemplateFormatVersion: 2010-09-09
+AWSTemplateFormatVersion: 2010-09-09
 Description: S3 Bucket with Inventory and Analytics Configurations
 
 Parameters:
-  LambdaLayerBucket:
+  DESTBUCKET:
     Type: String
-    Default: lamdalayer-bucket-lambdalayerbucket-r4tu6p2dy2a
+    Default: filmabonito-vod-destination-mgbq4jb0jip0
 
 Resources:
+#Add destination bucket env variable
+#add lambda run time to 10sec
+
+
+#Lambda layer bucket
+  LambdaLayerBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
 
 #Lambda Function Role
   LambdaResourcesRole:
@@ -94,7 +104,7 @@ Resources:
         - python3.7
       Content:
         S3Bucket: !Ref LambdaLayerBucket
-        S3Key: app.zip
+        S3Key: media-info-layer.zip
       Description: Lambda layer for MediaInfoLambda 'pymediainfo'
       LayerName: MediaInfoLambdaLayer
 
@@ -106,15 +116,15 @@ Resources:
     Properties:
       FunctionName: !Sub "${AWS::StackName}-media-info"
       Layers: [!Ref MediaInfoLambdaLayer ]
-      Handler: app.lambda_handler
+      Handler: lambda_function.lambda_handler
       Role: !GetAtt LambdaResourcesRole.Arn
       Code:
         S3Bucket: !Ref LambdaLayerBucket
-        S3Key: pythonapp.zip
+        S3Key: media-info-app.zip
       Runtime: python3.7
       Environment:
         Variables:
-          DEST_BUCKET: vodstack-1-destination-1gxvgnrwvxg6i
+          DEST_BUCKET: !Ref OutputBucket
 
 #S3 lambda invoke permission
   S3LambdaInvokeImage:
@@ -135,7 +145,7 @@ Resources:
         - python3.7
       Content:
         S3Bucket: !Ref LambdaLayerBucket
-        S3Key: pil.zip
+        S3Key: pillow-layer.zip
       Description: Lambda layer for Image Processor 'pillow'
       LayerName: ImageProcessorLambdaLayer
 
@@ -147,9 +157,36 @@ Resources:
     Properties:
       FunctionName: !Sub "${AWS::StackName}-image-processor"
       Layers: [!Ref ImageProcessorLambdaLayer ]
-      Handler: pillow.lambda_handler
+      Handler: lambda_function.lambda_handler
       Role: !GetAtt LambdaResourcesRole.Arn
       Code:
         S3Bucket: !Ref LambdaLayerBucket
-        S3Key: pillow.zip
+        S3Key: pillow-app.zip
       Runtime: python3.7
+      Timeout: 30
+      Environment:
+        Variables:
+          DEST_BUCKET: !Ref DESTBUCKET
+#Lambda Function to get update output video metadata details
+  VideoOutputMetadataUpdateLambda:
+    Description: Lambda function to get update output video metadata details
+    DependsOn: [LambdaResourcesRole]
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-video-output-meta"
+      Handler: meta_lambda_function.lambda_handler
+      Role: !GetAtt LambdaResourcesRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaLayerBucket
+        S3Key: metadata-app.zip
+      Runtime: python3.7
+      Timeout: 30
+      Environment:
+        Variables:
+          DEST_BUCKET: !Ref DESTBUCKET
+
+#Lambda layer bucket
+  OutputBucket:
+    Type: 'AWS::S3::Bucket'
+    
+      
